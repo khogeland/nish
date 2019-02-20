@@ -2,17 +2,43 @@ import
   os,
   tables,
   strutils,
+  sequtils,
   re,
+  nasty,
   sugar
 
 var cmdMap = initTable[string, seq[string] -> int]()
 
-proc defaultCmd(args: seq[string]): int = 1
+proc defaultCmd(args: seq[string]): int =
+  echo "Unknown command: " & args[0]
+  1
 
-proc eval(input: seq[string]): int =
-  echo(input)
-  if len(input) == 0: return 111
-  return cmdMap.getOrDefault(input[0], defaultCmd)(input)
+let whitespaceChars = " \n\r\t\b\f"
+let whitespaceChar = charIn(whitespaceChars)
+let statementEnd: Matcher[char] = charIn(",|&")
+
+let specialChars = whitespaceChar | statementEnd | '"'
+
+let token: Matcher[string] = anyChar.until(specialChars).asString
+let quotedString: Matcher[string] = (S("\"") & anyChar.until('"').asString & S("\"")).map(s => s[1])
+let stringMatch: Matcher[string] = quotedString | token
+let whiteSpaceSeparatedStrings: Matcher[seq[string]] = (whitespaceChar.anyCount && stringMatch).map(t => t[1]).until(statementEnd)
+let statement: Matcher[() -> int] = whiteSpaceSeparatedStrings.map(ss => (() => cmdMap.getOrDefault(ss[0], defaultCmd)(ss)))
+let commaSeparatedStatements: Matcher[seq[() -> int]] = statement & (',' && statement).map(t => t[1]).anyCount
+let commandLineMatch: Matcher[() -> int] = commaSeparatedStatements.map(proc(statements: seq[() -> int]): () -> int = (proc(): int =
+                                            for statement in statements:
+                                              let rc = statement()
+                                              if rc != 0: return rc
+                                            return 0
+                                           ))
+
+proc eval(input: string): int =
+  let match = input.match(commandLineMatch)
+  if match.success:
+    return match.matchData()
+  else:
+    echo match.reason
+    return 111
 
 const builtins = {
   ".echo": proc(a: seq[string]): int =
@@ -20,8 +46,8 @@ const builtins = {
   ".set": proc(a: seq[string]): int =
     if len(a) < 3: return 123
     cmdMap[a[1]] = proc(b: seq[string]): int =
-      if len(b) == 1: eval(a[2..^1])
-      else: eval(a[2..^1] & b[1..^1])
+      if len(b) == 1: eval(a[2..^1].join(" "))
+      else: eval((a[2..^1] & b[1..^1]).join(" "))
 }.toTable
 
 for key, val in builtins.pairs:
@@ -32,5 +58,4 @@ var returnCode = 0
 while true:
   write(stdout, $returnCode & ">")
   let input = readLine(stdin)
-  let cmd: seq[string] = re.split(string(input), re"\s+")
-  returnCode = eval(cmd)
+  returnCode = eval(input)
