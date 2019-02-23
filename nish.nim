@@ -1,5 +1,6 @@
 import
   os,
+  rdstdin,
   tables,
   strutils,
   sequtils,
@@ -41,6 +42,9 @@ proc eval(input: string): int =
     return 111
 
 const builtins = {
+  ".return": proc(a: seq[string]): int =
+    if len(a) == 1: return 0
+    return parseint(a[1]), 
   ".echo": proc(a: seq[string]): int =
     echo(join(a[1..^1], " ")),
   ".set": proc(a: seq[string]): int =
@@ -56,6 +60,5 @@ for key, val in builtins.pairs:
 var returnCode = 0
 
 while true:
-  write(stdout, $returnCode & ">")
-  let input = readLine(stdin)
+  let input = readLineFromStdin($returnCode & ">")
   returnCode = eval(input)
